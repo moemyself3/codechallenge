@@ -1,7 +1,61 @@
-def filter_targets(obs, target_list, date_time):
-    # your code here
-    print("Success!!")
+# Using an example as a guide
+# http://docs.astropy.org/en/stable/generated/examples/coordinates/plot_obs-planning.html
+def filter_targets(obs, target_list, date_time, airmass=2.5):
+    '''
+    filter_targets filters a list of observable targets above a default airmass of 2.5
 
+    Args:
+        obs: str or dict - name of observatory
+        target_list: table - expects 3 columns
+            col1, col2, col3
+            name of object, ra, dec
+        date_time: Time object - date and time of expected observation
+            date_time is expected to be converted to UTC from local time
+        airmass(optional): float - sets limit on airmass for filtering targets
+
+    Returns:
+        filered_list: a table with columns name, ra, dec, SkyCoord, airmass
+
+    '''
+    from astropy.coordinates import AltAz, SkyCoord
+    from astropy.table import Table
+    filtered_list = Table(target_list, copy=True)
+    filtered_list.rename_column('col1', 'name')
+    filtered_list.rename_column('col2', 'ra')
+    filtered_list.rename_column('col3', 'dec')
+    filtered_list['ra'].unit = 'hourangle'
+    filtered_list['dec'].unit = 'deg'
+    filtered_list.add_index('name')
+    filtered_list['SkyCoord'] = SkyCoord.guess_from_table(filtered_list)
+
+    if type(obs) is str:
+        # from web
+        # https://stackoverflow.com/questions/8653516/python-list-of-dictionaries-search
+        obs_location = next(item['location'] for item in observatories if item['name'] == obs)
+    elif type(obs) is dict:
+        obs_location = obs['location']
+    else:
+        raise TypeError('First argument expects str or dict type')
+
+    site = AltAz(obstime=date_time, location=obs_location)
+    target_airmass =[]
+    for target in filtered_list:
+        target_name = target['name']
+        target_coord = filtered_list.loc[target_name]['SkyCoord']
+        target_alt = target_coord.transform_to(site)
+        if target_alt.secz < 1:
+            target_airmass.append(99)
+        else:
+            target_airmass.append(target_alt.secz)
+    filtered_list['airmass'] = target_airmass
+
+    mask = filtered_list['airmass'] > airmass
+
+    from itertools import compress
+    rows_to_remove = list(compress(range(len(mask)), mask))
+
+    filtered_list.remove_rows(rows_to_remove)
+    return print(filtered_list)
 
 from astropy.coordinates import EarthLocation
 from astropy import units as u
@@ -26,8 +80,8 @@ observatories = [
 
 from astropy.time import Time
 # complete with Apr 10, 2019 and whatever time here
-date_time = Time(...)
-
+utcoffset = -5*u.hour  # Central Daylight Time
+date_time = Time('2019-04-10T15:14:59') - utcoffset
 
 # Name, RA (in hour angle!!) and Dec (in degrees)
 from astropy.io import ascii
